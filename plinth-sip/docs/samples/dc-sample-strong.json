@@ -1,0 +1,110 @@
+{
+  "_README": "Illustrative output. Re-generate against real data via: python backend/scripts/dc_demo.py --parcel <muni>/<id>=strong",
+  "parcelId": "EXAMPLE-STRONG-001",
+  "municipalityId": "va_loudoun_demo",
+  "address": "13500 Industrial Park Dr, Loudoun County, VA",
+  "parcelCentroid": [-77.5611, 39.0438],
+  "computedAt": "2026-05-07T14:32:11.041823+00:00",
+  "overallScore": "A",
+  "compositeScore": 88.4,
+  "subscores": {
+    "grid": 95.0,
+    "power_cost": 100.0,
+    "infrastructure": 92.0,
+    "land": 96.0,
+    "generation": 100.0,
+    "iso": 100.0
+  },
+  "scoreRationale": "Composite 88.4/100 -> A. No major concerns.",
+  "tierFit": ["edge", "colo", "hyperscale", "campus"],
+  "gatingIssues": [],
+  "grid": {
+    "nearestSubstation": {
+      "name": "Brambleton 230kV",
+      "operator": "Dominion Energy",
+      "maxVoltageKv": 230,
+      "distanceMi": 0.42,
+      "coords": [-77.5697, 39.0512]
+    },
+    "nearestTransmissionSubstation": {
+      "name": "Brambleton 230kV",
+      "operator": "Dominion Energy",
+      "maxVoltageKv": 230,
+      "distanceMi": 0.42,
+      "coords": [-77.5697, 39.0512]
+    },
+    "substationsWithin5Mi": [
+      { "id": "uuid-1", "name": "Brambleton 230kV", "operator": "Dominion Energy", "maxVoltageKv": 230, "distanceMi": 0.42 },
+      { "id": "uuid-2", "name": "Belmont 500kV", "operator": "Dominion Energy", "maxVoltageKv": 500, "distanceMi": 1.85 },
+      { "id": "uuid-3", "name": "Yardley 345kV", "operator": "PJM-IX", "maxVoltageKv": 345, "distanceMi": 3.21 },
+      { "id": "uuid-4", "name": "Goose Creek 138kV", "operator": "Dominion Energy", "maxVoltageKv": 138, "distanceMi": 4.12 }
+    ],
+    "nearestTransmissionLine": {
+      "owner": "Dominion Energy",
+      "voltageKv": 230,
+      "distanceMi": 0.18,
+      "coords": [-77.5605, 39.0419]
+    },
+    "has230kvLineWithin1Mi": true,
+    "transmissionCorridorsWithin5Mi": 3,
+    "dualFeedFeasible": true,
+    "iso": {
+      "name": "PJM",
+      "fullName": "PJM Interconnection",
+      "queueDashboardUrl": "https://www.pjm.com/planning/services-requests/interconnection-queues",
+      "typicalQueueTimeline": "3-5 years for studies; new-large-load (NLL) process introduced 2024",
+      "currentPosture": "TODO: review and edit. As of 2025 PJM was running active capacity and energy market reforms; large-load interconnection has additional scrutiny."
+    }
+  },
+  "generation": {
+    "nearestBaseload": {
+      "name": "North Anna Nuclear",
+      "fuel": "nuclear",
+      "capacityMw": 1786.0,
+      "distanceMi": 18.4
+    },
+    "capacityWithin25MiByFuel": {
+      "nuclear": 1786.0,
+      "gas": 4250.5,
+      "wind": 0.0,
+      "solar": 480.0,
+      "coal": 0.0,
+      "hydro": 120.0,
+      "oil": 0.0,
+      "biomass": 0.0,
+      "geothermal": 0.0,
+      "battery": 200.0,
+      "other": 0.0
+    }
+  },
+  "power": {
+    "utility": "Dominion Energy Virginia",
+    "industrialRateCentsPerKwh": 5.62,
+    "rateTier": "Low"
+  },
+  "infrastructure": {
+    "fiberDistanceMi": 0.31,
+    "nearestFiber": {
+      "sourceLabel": "HIFLD",
+      "carrier": "Lumen",
+      "distanceMi": 0.31,
+      "coords": [-77.5640, 39.0431]
+    },
+    "gasPipelineDistanceMi": 1.94,
+    "nearestGasPipeline": {
+      "operator": "Dominion Transmission",
+      "distanceMi": 1.94,
+      "coords": [-77.5478, 39.0301]
+    },
+    "floodZone": "X",
+    "wetlandCoveragePct": 1.4,
+    "acreage": 62.4,
+    "acreageTier": "hyperscale"
+  },
+  "zoning": "industrial",
+  "warnings": [
+    "Available substation capacity is NOT modeled — verify with the serving utility before proceeding.",
+    "Interconnection queue position is NOT live — see ISO link for current status.",
+    "Industrial rates are utility averages from EIA 861 — actual large-load tariffs may differ significantly."
+  ]
+}

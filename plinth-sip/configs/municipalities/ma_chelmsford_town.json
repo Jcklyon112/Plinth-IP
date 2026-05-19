@@ -1,0 +1,107 @@
+{
+  "municipality_id": "ma_chelmsford_town",
+  "municipality_name": "CHELMSFORD",
+  "county": "Middlesex County",
+  "state": "MA",
+  "config_version": 1,
+  "config_notes": "AUTO-GENERATED config for CHELMSFORD, MA. Generated from parcel data with 1 discovered zoning codes. All zoning rules are generic defaults \u2014 requires verification against the actual local zoning ordinance before using for real outreach decisions.",
+  "auto_generated": true,
+  "auto_generated_confidence": "LOW",
+  "crs": "EPSG:4326",
+  "calc_crs": "EPSG:26986",
+  "adapter": "massgis",
+  "zoning_code_map": {
+    "RB": "RB"
+  },
+  "state_law_overrides": {
+    "ma_adu_by_right": {
+      "law": "Massachusetts Chapter 40A Section 3B",
+      "effective_date": "2024-02-02",
+      "description": "All single-family and two-family zoned parcels must permit at least one ADU by right regardless of local prohibition. Studio/1BR ADU \u2264 900 sqft or half principal unit size.",
+      "applies_to_use_codes": [
+        "single_family",
+        "two_family",
+        "residential"
+      ],
+      "confidence": 0.9,
+      "notes": "Verify applicability with local counsel."
+    }
+  },
+  "data_sources": {
+    "parcel_data": {
+      "url": "ArcGIS REST API (auto-fetched)",
+      "format": "arcgis_rest",
+      "confidence": 0.8,
+      "notes": "Auto-fetched from state GIS portal via Plinth Phase 5 scanner."
+    },
+    "zoning_data": {
+      "url": null,
+      "format": "unknown",
+      "confidence": 0.2,
+      "notes": "Zoning rules are auto-generated defaults. Verify with local ordinance."
+    }
+  },
+  "sewer_service": false,
+  "sewer_service_notes": "Assumed private septic (no sewer) based on MA state defaults. Verify with local public works.",
+  "sewer_service_confidence": 0.4,
+  "zoning_districts": {
+    "RB": {
+      "label": "Dense Residential (auto)",
+      "use_allowed": [
+        "single_family",
+        "two_family",
+        "multi_family",
+        "mobile_home",
+        "condominium",
+        "accessory",
+        "residential",
+        "mixed_use"
+      ],
+      "max_lot_coverage_pct": 0.3,
+      "max_height_ft": 35,
+      "adu_allowed": true,
+      "adu_max_sqft": 1000,
+      "adu_max_bedrooms": 2,
+      "adu_parking_required": 1,
+      "confidence": 0.45,
+      "min_lot_area_sqft": 8000,
+      "min_frontage_ft": 60,
+      "setbacks": {
+        "front_ft": 30,
+        "rear_ft": 20,
+        "side_ft": 10
+      },
+      "far": null,
+      "adu_notes": "Auto-generated config for CHELMSFORD. Verify ADU rules against local zoning ordinance.",
+      "citations": [
+        "Auto-generated \u2014 verify against CHELMSFORD zoning ordinance"
+      ]
+    }
+  },
+  "septic_assumptions": {
+    "min_lot_area_for_new_system_sqft": 40000,
+    "bedroom_load_factor": "standard",
+    "title_5_perc_test_required": true,
+    "notes": "Auto-generated septic assumptions based on state defaults. Verify with local health regulations.",
+    "confidence": 0.4
+  },
+  "parking_assumptions": {
+    "default_spaces_required_per_unit": 1,
+    "notes": "One off-street space assumed. Verify with local ordinance.",
+    "confidence": 0.5
+  },
+  "overlays": [
+    {
+      "overlay_type": "flood_zone",
+      "label": "FEMA Flood Zone",
+      "constraint_level": "hard_block",
+      "notes": "Standard FEMA flood zone constraint. Overlay GIS data not yet loaded."
+    },
+    {
+      "overlay_type": "wetlands_buffer",
+      "label": "Wetlands Buffer",
+      "constraint_level": "hard_block",
+      "notes": "State wetlands regulations apply. Buffer distances vary by state."
+    }
+  ]
+}

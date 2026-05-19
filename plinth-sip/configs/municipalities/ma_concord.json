@@ -1,0 +1,194 @@
+{
+  "municipality_id": "ma_concord",
+  "municipality_name": "Concord",
+  "county": "Middlesex",
+  "state": "MA",
+  "config_version": 1,
+  "config_notes": "Initial config for Concord, MA based on the Concord Zoning Bylaw. Concord is similar to neighboring Acton in scale and zoning structure but has partial sewer in West Concord/town-center. Revolutionary-era historic district covers a large fraction of the town center. Most parcels remain on private septic.",
+  "crs": "EPSG:4326",
+  "calc_crs": "EPSG:26986",
+  "adapter": "massgis",
+
+  "zoning_code_map": {
+    "RA":  "RA",  "R-A":  "RA",  "RES-A":  "RA",
+    "RAA": "RAA", "R-AA": "RAA", "RES-AA": "RAA",
+    "RB":  "RB",  "R-B":  "RB",  "RES-B":  "RB",
+    "RC":  "RC",  "R-C":  "RC",  "RES-C":  "RC",
+    "BA": null, "BB": null, "BC": null, "B": null,
+    "IA": null, "IB": null, "I":  null,
+    "OS": null, "CON": null, "PUD": null
+  },
+
+  "state_law_overrides": {
+    "ma_adu_by_right": {
+      "law": "Massachusetts Chapter 40A Section 3B",
+      "effective_date": "2025-02-02",
+      "description": "Affordable Homes Act §8: ADUs permitted by-right in single-family districts statewide. Up to 900 sqft or 50% of primary unit (whichever is less). No owner-occupancy requirement. Local site plan review allowed; no special permit / variance.",
+      "applies_to_use_codes": ["single_family", "two_family", "residential"],
+      "confidence": 0.9,
+      "notes": "Effective 2025-02-02 per Affordable Homes Act (Ch. 150 of the Acts of 2024). Local Concord Zoning Bylaw still requires updating but state law preempts."
+    }
+  },
+
+  "data_sources": {
+    "parcel_data": {
+      "url": "https://www.mass.gov/info-details/massgis-data-property-tax-parcels",
+      "format": "arcgis_rest",
+      "last_updated": "2026-04-01",
+      "confidence": 0.95,
+      "notes": "MassGIS Massachusetts_Property_Tax_Parcels FeatureServer. Concord TOWN_ID=67 (auto-discovered by name)."
+    },
+    "zoning_data": {
+      "url": "https://concordma.gov/DocumentCenter/View/",
+      "format": "pdf",
+      "last_updated": "2024-06-01",
+      "confidence": 0.7,
+      "notes": "Concord Zoning Bylaw PDF. Setbacks and ADU allowances per district below pending analyst verification."
+    },
+    "assessor_data": {
+      "url": "https://www.mass.gov/info-details/massgis-data-property-tax-parcels",
+      "format": "arcgis_rest",
+      "last_updated": "2026-04-01",
+      "confidence": 0.9,
+      "notes": "Assessor attributes (YEAR_BUILT, BLD_AREA, USE_CODE, etc.) included in MassGIS L3 layer."
+    }
+  },
+
+  "sewer_service": false,
+  "sewer_service_notes": "Concord has partial public sewer covering West Concord and parts of Concord Center; most of the town remains on private septic. This config flags sewer_service=false as the conservative default — analyst override per parcel may be needed for in-sewer-area lots.",
+  "sewer_service_confidence": 0.85,
+
+  "zoning_districts": {
+    "RA": {
+      "label": "Residence A (40,000 sqft)",
+      "use_allowed": ["single_family", "accessory", "residential"],
+      "min_lot_area_sqft": 40000,
+      "min_frontage_ft": 175,
+      "setbacks": {
+        "front_ft": 40,
+        "rear_ft": 30,
+        "side_ft": 20
+      },
+      "max_lot_coverage_pct": 0.20,
+      "max_height_ft": 35,
+      "far": null,
+      "adu_allowed": true,
+      "adu_notes": "ADU permitted by-right under MA AHA §8. Concord's local bylaw historically required special permit; state law now preempts. Detached structures subject to standard setbacks.",
+      "adu_max_sqft": 900,
+      "adu_max_bedrooms": 2,
+      "adu_parking_required": 1,
+      "confidence": 0.75,
+      "citations": ["Concord Zoning Bylaw §4.4 Residence A District", "MA AHA §8"]
+    },
+    "RAA": {
+      "label": "Residence AA (60,000 sqft)",
+      "use_allowed": ["single_family", "residential"],
+      "min_lot_area_sqft": 60000,
+      "min_frontage_ft": 200,
+      "setbacks": {
+        "front_ft": 50,
+        "rear_ft": 40,
+        "side_ft": 25
+      },
+      "max_lot_coverage_pct": 0.15,
+      "max_height_ft": 35,
+      "far": null,
+      "adu_allowed": true,
+      "adu_notes": "ADU permitted by-right under MA AHA §8. Larger-lot rural district — siting flexibility is high but setback footprint is large.",
+      "adu_max_sqft": 900,
+      "adu_max_bedrooms": 2,
+      "adu_parking_required": 1,
+      "confidence": 0.75,
+      "citations": ["Concord Zoning Bylaw §4.5 Residence AA District", "MA AHA §8"]
+    },
+    "RB": {
+      "label": "Residence B (in-town)",
+      "use_allowed": ["single_family", "two_family", "accessory", "residential"],
+      "min_lot_area_sqft": 25000,
+      "min_frontage_ft": 125,
+      "setbacks": {
+        "front_ft": 30,
+        "rear_ft": 25,
+        "side_ft": 15
+      },
+      "max_lot_coverage_pct": 0.25,
+      "max_height_ft": 35,
+      "far": null,
+      "adu_allowed": true,
+      "adu_notes": "Mixed single- and two-family, in-town residential. AHA §8 applies. Among the better Plinth deployment zones in Concord — moderate lot sizes with lower setbacks.",
+      "adu_max_sqft": 900,
+      "adu_max_bedrooms": 2,
+      "adu_parking_required": 1,
+      "confidence": 0.8,
+      "citations": ["Concord Zoning Bylaw §4.6 Residence B District", "MA AHA §8"]
+    },
+    "RC": {
+      "label": "Residence C (compact in-town)",
+      "use_allowed": ["single_family", "two_family", "accessory", "residential"],
+      "min_lot_area_sqft": 12000,
+      "min_frontage_ft": 80,
+      "setbacks": {
+        "front_ft": 20,
+        "rear_ft": 20,
+        "side_ft": 10
+      },
+      "max_lot_coverage_pct": 0.30,
+      "max_height_ft": 35,
+      "far": null,
+      "adu_allowed": true,
+      "adu_notes": "Most permissive Concord residential zone. AHA §8 applies. Highest coverage allowance and smallest setbacks — best Plinth deployment fit despite small lot sizes.",
+      "adu_max_sqft": 900,
+      "adu_max_bedrooms": 2,
+      "adu_parking_required": 1,
+      "confidence": 0.8,
+      "citations": ["Concord Zoning Bylaw §4.7 Residence C District", "MA AHA §8"]
+    }
+  },
+
+  "septic_assumptions": {
+    "min_lot_area_for_new_system_sqft": 40000,
+    "bedroom_load_factor": "title_5",
+    "title_5_perc_test_required": true,
+    "notes": "Massachusetts Title 5 (310 CMR 15.00) governs all private systems. SSURGO soil suitability is the dominant signal — much of Concord sits on Paxton/Woodbridge glacial-till hardpan rated 'Very limited' for conventional septic. Innovative-alternative systems may be feasible but rarely cost-effective for ADU-scale loads.",
+    "confidence": 0.8
+  },
+
+  "parking_assumptions": {
+    "default_spaces_required_per_unit": 1,
+    "notes": "MA AHA §8 caps ADU parking minimum at 1 space, 0 within 1/2 mile of MBTA station. Concord has commuter rail (Concord and West Concord stations) — parcels within walk distance qualify for the 0-space minimum.",
+    "confidence": 0.85
+  },
+
+  "overlays": [
+    {
+      "overlay_type": "flood_zone",
+      "label": "FEMA Flood Zone AE",
+      "constraint_level": "hard_block",
+      "notes": "Concord River and Sudbury River floodplains cover significant land area on the eastern and southern edges of town."
+    },
+    {
+      "overlay_type": "wetlands_buffer",
+      "label": "Wetlands Buffer (100ft)",
+      "constraint_level": "hard_block",
+      "notes": "MA Wetlands Protection Act 100-ft buffer around any vegetated or bordering vegetated wetland."
+    },
+    {
+      "overlay_type": "historic_district",
+      "label": "Concord Center Local Historic District",
+      "constraint_level": "review_required",
+      "notes": "Concord Historic Districts Commission review required for any exterior change. Multiple LHDs cover the town center, Monument Square, and Walden-Heywood. Reviews take 30–60 days and typically constrain materials/finishes."
+    },
+    {
+      "overlay_type": "riverfront_area",
+      "label": "Rivers Protection Act (200ft)",
+      "constraint_level": "review_required",
+      "notes": "Concord, Sudbury, and Assabet Rivers all trigger 200-ft Riverfront Area review under the MA Rivers Protection Act."
+    },
+    {
+      "overlay_type": "aquifer_protection",
+      "label": "Water Resource Protection District",
+      "constraint_level": "review_required",
+      "notes": "Concord Water Resource Protection District restricts impervious cover and septic siting near public water supplies."
+    }
+  ]
+}

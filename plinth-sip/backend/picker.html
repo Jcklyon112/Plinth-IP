@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Plinth — Parcel Picker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #fff;
+         font-family: 'Syne', sans-serif; height: 100vh;
+         display: flex; flex-direction: column; }
+  header { padding: 24px 32px; border-bottom: 1px solid #222;
+           display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; letter-spacing: 0.15em;
+              text-transform: uppercase; font-weight: 400; }
+  header span { font-size: 11px; color: #555; letter-spacing: 0.1em; }
+  .layout { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 300px; border-right: 1px solid #222;
+             display: flex; flex-direction: column; }
+  .sidebar-header { padding: 20px 24px 12px;
+                    font-size: 10px; letter-spacing: 0.15em;
+                    color: #555; text-transform: uppercase; }
+  .search-input { margin: 0 24px 12px; padding: 10px 12px;
+                  background: #141414; border: 1px solid #222;
+                  color: #fff; font-family: inherit; font-size: 12px;
+                  outline: none; }
+  .search-input:focus { border-color: #444; }
+  .parcel-list { flex: 1; overflow-y: auto; }
+  .parcel-item { padding: 16px 24px; border-bottom: 1px solid #111;
+                 cursor: pointer; transition: background 0.15s; }
+  .parcel-item:hover { background: #141414; }
+  .parcel-item.active { background: #1a1a1a;
+                        border-left: 2px solid #fff; }
+  .parcel-item .name { font-size: 13px; margin-bottom: 4px; }
+  .parcel-item .id { font-size: 10px; color: #444;
+                     letter-spacing: 0.08em; }
+  .map { flex: 1; position: relative; background: #0d0d0d; }
+  canvas { width: 100%; height: 100%; }
+  .info-bar { padding: 16px 24px; border-top: 1px solid #222;
+              display: flex; gap: 32px; }
+  .info-item label { font-size: 9px; color: #444;
+                     letter-spacing: 0.12em; text-transform: uppercase;
+                     display: block; margin-bottom: 4px; }
+  .info-item value { font-size: 13px; }
+  .send-btn { margin: 16px 24px; padding: 12px;
+              background: #fff; color: #000; border: none;
+              font-size: 11px; letter-spacing: 0.15em;
+              text-transform: uppercase; cursor: pointer;
+              font-family: inherit; transition: opacity 0.15s; }
+  .send-btn:hover { opacity: 0.85; }
+  .send-btn:disabled { opacity: 0.3; cursor: default; }
+  .copied { background: #1a1a1a; color: #fff;
+            border: 1px solid #333; }
+  link { display: none; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<header>
+  <h1>Plinth</h1>
+  <span>Parcel Picker → Grasshopper</span>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-header" id="sidebarHeader">Available Parcels</div>
+    <input class="search-input" id="searchInput"
+           placeholder="Filter by address or ID…" autocomplete="off">
+    <div class="parcel-list" id="parcelList"></div>
+    <button class="send-btn" id="sendBtn" disabled>
+      Copy ID for Grasshopper
+    </button>
+  </div>
+  <div class="map">
+    <canvas id="mapCanvas"></canvas>
+    <div class="info-bar" id="infoBar">
+      <div class="info-item">
+        <label>Parcel</label>
+        <value id="infoName">—</value>
+      </div>
+      <div class="info-item">
+        <label>ID</label>
+        <value id="infoId">—</value>
+      </div>
+      <div class="info-item">
+        <label>Vertices</label>
+        <value id="infoVerts">—</value>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+const LIST_LIMIT = 500;
+let parcels = [];
+let visible = [];
+let selected = null;
+let boundaryData = null;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;',
+    '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+async function init() {
+  const res = await fetch(API + '/picker/parcels');
+  parcels = await res.json();
+  document.getElementById('sidebarHeader').textContent =
+    `Available Parcels (${parcels.length})`;
+  applyFilter('');
+  document.getElementById('searchInput')
+    .addEventListener('input', e => applyFilter(e.target.value));
+}
+
+function applyFilter(q) {
+  const needle = q.trim().toLowerCase();
+  visible = needle
+    ? parcels.filter(p =>
+        (p.name || '').toLowerCase().includes(needle) ||
+        (p.id || '').toLowerCase().includes(needle))
+    : parcels;
+  renderList();
+}
+
+function renderList() {
+  const el = document.getElementById('parcelList');
+  el.innerHTML = '';
+  const slice = visible.slice(0, LIST_LIMIT);
+  slice.forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'parcel-item';
+    if (selected && selected.id === p.id) div.classList.add('active');
+    div.innerHTML =
+      `<div class="name">${escapeHtml(p.name)}</div>
+       <div class="id">${escapeHtml(p.id)}</div>`;
+    div.onclick = () => selectParcel(p);
+    el.appendChild(div);
+  });
+  if (visible.length > LIST_LIMIT) {
+    const more = document.createElement('div');
+    more.className = 'parcel-item';
+    more.style.color = '#555';
+    more.style.cursor = 'default';
+    more.textContent =
+      `…${visible.length - LIST_LIMIT} more — refine search`;
+    el.appendChild(more);
+  }
+}
+
+async function selectParcel(p) {
+  selected = p;
+  document.querySelectorAll('.parcel-item').forEach(el => {
+    const idEl = el.querySelector('.id');
+    el.classList.toggle('active',
+      idEl && idEl.textContent === p.id);
+  });
+  const res = await fetch(
+    API + `/parcels/${encodeURIComponent(p.id)}/rhino`);
+  if (!res.ok) {
+    alert(`Failed to load parcel ${p.id}`);
+    return;
+  }
+  boundaryData = await res.json();
+  document.getElementById('infoName').textContent = boundaryData.name;
+  document.getElementById('infoId').textContent = p.id;
+  document.getElementById('infoVerts').textContent =
+    boundaryData.coordinates.length;
+  document.getElementById('sendBtn').disabled = false;
+  drawParcel(boundaryData.coordinates);
+}
+
+function drawParcel(coords) {
+  const canvas = document.getElementById('mapCanvas');
+  canvas.width  = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const lons = coords.map(c => c[0]);
+  const lats = coords.map(c => c[1]);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const pad = 80;
+  const scaleX = (canvas.width  - pad*2) / (maxLon - minLon || 1);
+  const scaleY = (canvas.height - pad*2) / (maxLat - minLat || 1);
+  const scale  = Math.min(scaleX, scaleY);
+
+  const toX = lon => pad + (lon - minLon) * scale +
+              ((canvas.width  - pad*2) - (maxLon-minLon)*scale) / 2;
+  const toY = lat => canvas.height - pad - (lat - minLat) * scale -
+              ((canvas.height - pad*2) - (maxLat-minLat)*scale) / 2;
+
+  ctx.beginPath();
+  coords.forEach((c, i) => {
+    i === 0 ? ctx.moveTo(toX(c[0]), toY(c[1]))
+            : ctx.lineTo(toX(c[0]), toY(c[1]));
+  });
+  ctx.closePath();
+  ctx.fillStyle   = 'rgba(255,255,255,0.04)';
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.fill();
+  ctx.stroke();
+
+  coords.forEach(c => {
+    ctx.beginPath();
+    ctx.arc(toX(c[0]), toY(c[1]), 3, 0, Math.PI*2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  });
+}
+
+document.getElementById('sendBtn').onclick = () => {
+  if (!selected) return;
+  navigator.clipboard.writeText(selected.id);
+  const btn = document.getElementById('sendBtn');
+  btn.textContent = 'Copied  ✓';
+  btn.classList.add('copied');
+  setTimeout(() => {
+    btn.textContent = 'Copy ID for Grasshopper';
+    btn.classList.remove('copied');
+  }, 2000);
+};
+
+init();
+</script>
+</body>
+</html>
