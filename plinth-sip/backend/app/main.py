@@ -16,6 +16,9 @@ Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
+    # Local dev origins explicitly; deployed frontends matched via regex so we
+    # don't have to redeploy the API every time Lovable/Vercel/Netlify hand
+    # out a new preview subdomain.
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
@@ -25,6 +28,7 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "http://127.0.0.1:5173",
     ],
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*(lovable\.app|lovable\.dev|vercel\.app|netlify\.app|onrender\.com)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

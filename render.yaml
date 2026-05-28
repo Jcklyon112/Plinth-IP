@@ -1,0 +1,29 @@
+# Render.com Blueprint — one-click deploy for the Plinth ADU Rent Calculator
+# backend. After importing this repo into Render, the dashboard will prompt
+# for RENTCAST_API_KEY and HUD_API_TOKEN values (marked `sync: false`).
+#
+# Free plan caveats:
+#   - service sleeps after 15 min idle (cold start ~30s on first wake)
+#   - filesystem is ephemeral — the SQLite cache resets on every deploy
+#     (fine for a demo; for persistence, upgrade to a paid disk add-on)
+
+services:
+  - type: web
+    name: plinth-adu-rent-api
+    runtime: python
+    region: ohio
+    plan: free
+    rootDir: plinth-sip/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: RENTCAST_API_KEY
+        sync: false
+      - key: HUD_API_TOKEN
+        sync: false
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.11.10"
