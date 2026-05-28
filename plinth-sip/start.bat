@@ -1,47 +1,52 @@
 @echo off
-echo ================================================
-echo  Plinth SIP - Starting Platform
-echo ================================================
-echo.
+REM Boots the ADU Rent Calculator locally.
+REM   - Backend (FastAPI + SQLite) on http://localhost:8000
+REM   - Frontend (Vite)            on http://localhost:3001
+REM Each runs in its own console window so logs stay separate and either can be Ctrl+C'd independently.
 
-:: Always run from the folder this .bat file lives in
-cd /d "%~dp0"
+setlocal
+set ROOT=%~dp0
 
-echo Starting database...
-docker compose up db -d
-if errorlevel 1 (
+if not exist "%ROOT%backend\venv\Scripts\activate.bat" (
     echo.
-    echo ERROR: Docker is not running.
-    echo Open Docker Desktop from the Start menu, wait for the
-    echo whale icon in the taskbar to stop spinning, then retry.
-    goto :fail
+    echo [start.bat] Backend venv not found at backend\venv. Create it once:
+    echo     cd backend
+    echo     python -m venv venv
+    echo     venv\Scripts\activate
+    echo     pip install -r requirements.txt
+    echo.
+    pause
+    exit /b 1
 )
-timeout /t 5 /nobreak >nul
-echo Database ready.
-echo.
 
-echo Starting backend API...
-start "Plinth Backend" cmd /k ""%~dp0backend\run_backend.bat""
+if not exist "%ROOT%frontend\node_modules" (
+    echo.
+    echo [start.bat] Frontend node_modules not found. Run once:
+    echo     cd frontend
+    echo     npm install
+    echo.
+    pause
+    exit /b 1
+)
 
-echo Waiting for backend to start...
-timeout /t 8 /nobreak >nul
+if not exist "%ROOT%backend\.env" (
+    echo.
+    echo [start.bat] backend\.env not found. Copy and fill it:
+    echo     copy ..\.env.example backend\.env
+    echo Then set RENTCAST_API_KEY and HUD_API_TOKEN.
+    echo.
+    pause
+    exit /b 1
+)
 
-echo Starting frontend...
-start "Plinth Frontend" cmd /k ""%~dp0frontend\run_frontend.bat""
+start "Plinth ADU - Backend"  cmd /k "cd /d %ROOT%backend && call venv\Scripts\activate && uvicorn app.main:app --reload --port 8000"
+start "Plinth ADU - Frontend" cmd /k "cd /d %ROOT%frontend && npm run dev"
 
 echo.
-echo ================================================
-echo  Platform is starting up!
+echo Started:
+echo   Backend:  http://localhost:8000   (API docs at /docs)
+echo   Frontend: http://localhost:3001
 echo.
-echo  Go to: http://localhost:3000
-echo  Wait about 15 seconds for everything to load.
+echo Close the two console windows to stop. This window can be closed safely.
 echo.
-echo  To stop: close the Backend and Frontend windows.
-echo ================================================
-pause
-exit /b 0
-
-:fail
-echo.
-pause
-exit /b 1
+endlocal

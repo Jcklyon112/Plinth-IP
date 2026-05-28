@@ -1,31 +1,36 @@
 import React, { useMemo, useState } from 'react';
-import type { ParcelProperties } from '../types/parcel';
+import type { RentSpecEstimate } from '../api/client';
+import {
+  ASSUMPTIONS as APP_ASSUMPTIONS,
+  MONTH_LABELS,
+  seasonalAnnualRevenue,
+  type PlinthModel,
+} from '../config';
 
 // ──────────────────────────────────────────────────────────────────────
 // DEFAULT ASSUMPTIONS — editable live in the "Adjust Assumptions" panel.
-// Tweak the numeric defaults here to change baseline behavior.
 // ──────────────────────────────────────────────────────────────────────
 
 interface Assumptions {
-  aduAllInCost: number;        // total project cost (hard + soft + sitework)
-  aduSizeSqft: number;         // ADU size in SF (auto-pulled from feasibility)
-  homeValue: number;           // subject home market value
-  existingMortgageBalance: number; // outstanding mortgage on subject home
-  rentPerSqftPerMonth: number; // rent comp; multiplied by aduSizeSqft / 12
-  heloanLtvOnEquity: number;   // % of available equity that can be borrowed
-  heloanRate: number;          // annual interest rate (decimal)
+  aduAllInCost: number;
+  aduSizeSqft: number;
+  homeValue: number;
+  existingMortgageBalance: number;
+  rentPerSqftPerMonth: number;
+  heloanLtvOnEquity: number;
+  heloanRate: number;
   heloanTermYears: number;
-  propertyTaxIncreaseRate: number; // % of ADU cost annually
+  propertyTaxIncreaseRate: number;
   insuranceAnnual: number;
   maintenancePctOfRent: number;
   vacancyPct: number;
-  managementPct: number;       // 0 = self-managed
+  managementPct: number;
   rentGrowth: number;
   expenseGrowth: number;
   holdYears: number;
   exitCapRate: number;
   prefRate: number;
-  ownerSplitAbovePref: number; // owner share above pref (0.7 = 70/30)
+  ownerSplitAbovePref: number;
 }
 
 const DEFAULT_ASSUMPTIONS: Assumptions = {
@@ -54,7 +59,6 @@ const DEFAULT_ASSUMPTIONS: Assumptions = {
 // FINANCIAL MATH — pure functions, no React deps.
 // ──────────────────────────────────────────────────────────────────────
 
-/** Standard amortizing loan payment, returns {monthlyPayment, annualDebtService}. */
 function amortizingPayment(principal: number, annualRate: number, termYears: number) {
   if (principal <= 0) return { monthlyPayment: 0, annualDebtService: 0 };
   const i = annualRate / 12;
@@ -67,19 +71,16 @@ function amortizingPayment(principal: number, annualRate: number, termYears: num
   return { monthlyPayment: m, annualDebtService: m * 12 };
 }
 
-/** Bisection-based IRR for a stream of cash flows starting at year 0. */
-function irr(cashflows: number[], guess: number = 0.1): number | null {
+function irr(cashflows: number[]): number | null {
   if (cashflows.length < 2) return null;
   const npv = (rate: number) =>
     cashflows.reduce((acc, cf, t) => acc + cf / Math.pow(1 + rate, t), 0);
 
-  // Bisection over [-0.99, 5.0]
   let lo = -0.99;
   let hi = 5.0;
   let nLo = npv(lo);
   let nHi = npv(hi);
   if (nLo * nHi > 0) {
-    // No sign change — try wider range or give up
     for (const r of [-0.95, -0.5, 0, 0.5, 1, 2, 5, 10]) {
       const n = npv(r);
       if (n * nLo < 0) {
@@ -116,45 +117,6 @@ interface YearRow {
   cumulativeCf: number;
 }
 
-interface ProFormaModel {
-  assumptions: Assumptions;
-
-  // Sources & Uses
-  totalCost: number;
-  availableEquity: number;
-  heloanProceeds: number;
-  ownerEquity: number;
-
-  // Year 1 baseline (constants we use for growth)
-  year1GrossRent: number;
-  year1Vacancy: number;
-  year1Egi: number;
-  year1Tax: number;
-  year1Insurance: number;
-  year1Maintenance: number;
-  year1Management: number;
-  year1OpEx: number;
-  year1Noi: number;
-  annualDebtService: number;
-  year1Cfads: number;
-
-  // Time-series
-  proForma: YearRow[];
-
-  // Returns
-  cashOnCashY1: number;
-  cashOnCashY3: number;
-  exitValue: number;
-  unleveredIrr: number | null;
-  leveredIrr: number | null;
-  equityMultiple: number;
-  breakEvenOccupancy: number;
-  monthsToBreakEven: number | null;
-
-  // Waterfall (illustrative JV)
-  waterfall: WaterfallRow[];
-}
-
 interface WaterfallRow {
   year: number;
   cfads: number;
@@ -166,16 +128,42 @@ interface WaterfallRow {
   partnerShare: number;
 }
 
+interface ProFormaModel {
+  assumptions: Assumptions;
+  totalCost: number;
+  availableEquity: number;
+  heloanProceeds: number;
+  ownerEquity: number;
+  year1GrossRent: number;
+  year1Vacancy: number;
+  year1Egi: number;
+  year1Tax: number;
+  year1Insurance: number;
+  year1Maintenance: number;
+  year1Management: number;
+  year1OpEx: number;
+  year1Noi: number;
+  annualDebtService: number;
+  year1Cfads: number;
+  proForma: YearRow[];
+  cashOnCashY1: number;
+  cashOnCashY3: number;
+  exitValue: number;
+  unleveredIrr: number | null;
+  leveredIrr: number | null;
+  equityMultiple: number;
+  breakEvenOccupancy: number;
+  monthsToBreakEven: number | null;
+  waterfall: WaterfallRow[];
+}
+
 function buildProForma(a: Assumptions): ProFormaModel {
-  // Sources & Uses
   const availableEquity = Math.max(0, a.homeValue - a.existingMortgageBalance);
   const heloanProceeds = Math.min(availableEquity * a.heloanLtvOnEquity, a.aduAllInCost);
   const ownerEquity = Math.max(0, a.aduAllInCost - heloanProceeds);
 
-  // Debt service (level annual payment)
   const { annualDebtService } = amortizingPayment(heloanProceeds, a.heloanRate, a.heloanTermYears);
 
-  // Year 1 baseline
   const year1GrossRent = a.rentPerSqftPerMonth * a.aduSizeSqft * 12;
   const year1Vacancy = year1GrossRent * a.vacancyPct;
   const year1Egi = year1GrossRent - year1Vacancy;
@@ -187,7 +175,6 @@ function buildProForma(a: Assumptions): ProFormaModel {
   const year1Noi = year1Egi - year1OpEx;
   const year1Cfads = year1Noi - annualDebtService;
 
-  // 10-year pro forma
   const proForma: YearRow[] = [];
   let cumulativeCf = 0;
   for (let yr = 1; yr <= a.holdYears; yr++) {
@@ -208,32 +195,19 @@ function buildProForma(a: Assumptions): ProFormaModel {
     cumulativeCf += cfads;
 
     proForma.push({
-      year: yr,
-      grossRent,
-      vacancy,
-      egi,
-      opEx,
-      noi,
-      debtService: annualDebtService,
-      cfads,
-      cumulativeCf,
+      year: yr, grossRent, vacancy, egi, opEx, noi,
+      debtService: annualDebtService, cfads, cumulativeCf,
     });
   }
 
-  // Exit value (terminal NOI / exit cap)
   const lastYear = proForma[proForma.length - 1];
-  const terminalNoi = lastYear ? lastYear.noi * (1 + a.rentGrowth) : 0; // forward-NOI proxy
+  const terminalNoi = lastYear ? lastYear.noi * (1 + a.rentGrowth) : 0;
   const exitValue = terminalNoi > 0 ? terminalNoi / a.exitCapRate : 0;
 
-  // IRRs — assume HELOAN balance at exit ~ remaining principal
   const remainingHeloanBalance = remainingPrincipal(
-    heloanProceeds,
-    a.heloanRate,
-    a.heloanTermYears,
-    a.holdYears
+    heloanProceeds, a.heloanRate, a.heloanTermYears, a.holdYears,
   );
 
-  // Unlevered: spend full project cost at year 0, NOI each year, exit value at year 10
   const unleveredCf: number[] = [-a.aduAllInCost];
   for (let i = 0; i < proForma.length; i++) {
     let cf = proForma[i].noi;
@@ -242,7 +216,6 @@ function buildProForma(a: Assumptions): ProFormaModel {
   }
   const unleveredIrr = irr(unleveredCf);
 
-  // Levered: spend owner equity at year 0, CFADS each year, (exit value - remaining debt) at year 10
   const leveredCf: number[] = [-ownerEquity];
   for (let i = 0; i < proForma.length; i++) {
     let cf = proForma[i].cfads;
@@ -251,25 +224,19 @@ function buildProForma(a: Assumptions): ProFormaModel {
   }
   const leveredIrr = irr(leveredCf);
 
-  // Equity multiple = total levered distributions / equity invested
   const totalLeveredDistributions = leveredCf.slice(1).reduce((s, x) => s + x, 0);
   const equityMultiple = ownerEquity > 0 ? totalLeveredDistributions / ownerEquity : 0;
 
-  // Returns ratios
   const cashOnCashY1 = ownerEquity > 0 ? year1Cfads / ownerEquity : 0;
   const y3 = proForma[2];
   const cashOnCashY3 = y3 && ownerEquity > 0 ? y3.cfads / ownerEquity : 0;
 
-  // Break-even occupancy: occupancy% at which CFADS = 0 in Y1
-  // grossRent*(occ) - opExNonRentVar - debtService = 0 → occ = (opExFixed + DS) / (grossRent - rent-var-opex)
-  // simplification: solve for occupancy assuming rent-tied opex scales linearly
   const fixedOpex = year1Tax + year1Insurance;
-  const variableOpexPerOccUnit = a.maintenancePctOfRent + a.managementPct * (1 - a.vacancyPct); // approx
+  const variableOpexPerOccUnit = a.maintenancePctOfRent + a.managementPct * (1 - a.vacancyPct);
   const denominator = year1GrossRent * (1 - variableOpexPerOccUnit);
   const breakEvenOccupancy =
     denominator > 0 ? Math.max(0, Math.min(1, (fixedOpex + annualDebtService) / denominator)) : 1;
 
-  // Months to break-even: cumulative CFADS recovers owner equity
   let monthsToBreakEven: number | null = null;
   let runningEquityRecovery = 0;
   for (const row of proForma) {
@@ -284,7 +251,6 @@ function buildProForma(a: Assumptions): ProFormaModel {
     if (monthsToBreakEven != null) break;
   }
 
-  // Waterfall — illustrative single-tier
   const waterfall: WaterfallRow[] = [];
   let prefBalance = ownerEquity;
   for (const row of proForma) {
@@ -296,52 +262,29 @@ function buildProForma(a: Assumptions): ProFormaModel {
     const partnerShare = excess * (1 - a.ownerSplitAbovePref);
     prefBalance = prefBalance + prefAccrued - prefPaid;
     waterfall.push({
-      year: row.year,
-      cfads: row.cfads,
-      prefAccrued,
-      prefPaid,
-      prefBalanceEnd: prefBalance,
-      excess,
-      ownerShare,
-      partnerShare,
+      year: row.year, cfads: row.cfads,
+      prefAccrued, prefPaid, prefBalanceEnd: prefBalance,
+      excess, ownerShare, partnerShare,
     });
   }
 
   return {
     assumptions: a,
     totalCost: a.aduAllInCost,
-    availableEquity,
-    heloanProceeds,
-    ownerEquity,
-    year1GrossRent,
-    year1Vacancy,
-    year1Egi,
-    year1Tax,
-    year1Insurance,
-    year1Maintenance,
-    year1Management,
-    year1OpEx,
-    year1Noi,
-    annualDebtService,
-    year1Cfads,
+    availableEquity, heloanProceeds, ownerEquity,
+    year1GrossRent, year1Vacancy, year1Egi,
+    year1Tax, year1Insurance, year1Maintenance, year1Management,
+    year1OpEx, year1Noi, annualDebtService, year1Cfads,
     proForma,
-    cashOnCashY1,
-    cashOnCashY3,
-    exitValue,
-    unleveredIrr,
-    leveredIrr,
-    equityMultiple,
-    breakEvenOccupancy,
-    monthsToBreakEven,
+    cashOnCashY1, cashOnCashY3, exitValue,
+    unleveredIrr, leveredIrr, equityMultiple,
+    breakEvenOccupancy, monthsToBreakEven,
     waterfall,
   };
 }
 
 function remainingPrincipal(
-  principal: number,
-  annualRate: number,
-  termYears: number,
-  yearsElapsed: number
+  principal: number, annualRate: number, termYears: number, yearsElapsed: number,
 ): number {
   if (principal <= 0) return 0;
   const i = annualRate / 12;
@@ -350,9 +293,7 @@ function remainingPrincipal(
   if (k >= n) return 0;
   if (i === 0) return principal * (1 - k / n);
   const m = (principal * i) / (1 - Math.pow(1 + i, -n));
-  // standard remaining balance formula
-  const balance = (m * (1 - Math.pow(1 + i, -(n - k)))) / i;
-  return balance;
+  return (m * (1 - Math.pow(1 + i, -(n - k)))) / i;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -372,52 +313,69 @@ const fmtPct = (n: number, decimals = 1) =>
 const fmtPctOrDash = (n: number | null | undefined, decimals = 1) =>
   n == null || !Number.isFinite(n) ? '—' : `${(n * 100).toFixed(decimals)}%`;
 
-// Heatmap color: 0 = red, 1 = green
 function heatColor(t: number): string {
   const clamped = Math.max(0, Math.min(1, t));
-  // Interpolate red → amber → green
   if (clamped < 0.5) {
     const k = clamped * 2;
-    const r = 224;
-    const g = Math.round(60 + 140 * k);
-    const b = 60;
-    return `rgb(${r},${g},${b})`;
-  } else {
-    const k = (clamped - 0.5) * 2;
-    const r = Math.round(224 - 130 * k);
-    const g = 200;
-    const b = Math.round(60 + 50 * k);
-    return `rgb(${r},${g},${b})`;
+    return `rgb(224,${Math.round(60 + 140 * k)},60)`;
   }
+  const k = (clamped - 0.5) * 2;
+  return `rgb(${Math.round(224 - 130 * k)},200,${Math.round(60 + 50 * k)})`;
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// PROPS + COMPONENT
+// COMPONENT
 // ──────────────────────────────────────────────────────────────────────
 
 interface Props {
-  parcel: ParcelProperties;
+  address: string;
+  estimate: RentSpecEstimate;
+  model: PlinthModel;
+  yearRound: boolean;
+  selectedMonths: number[];
+  funding: 'cash' | 'finance';
   onClose: () => void;
 }
 
-function deriveAduSize(parcel: ParcelProperties): number {
-  // Pull buildable area from the buildable_envelope rule's assumptions if available.
-  const rules = parcel.rule_results || [];
-  const benv = rules.find(r => r.rule_id === 'buildable_envelope');
-  const ba = benv?.assumptions_used?.['buildable_area_sqft'];
-  if (typeof ba === 'number' && ba >= 525) {
-    // Cap at typical ADU max (900 sqft) and don't exceed the buildable envelope.
-    return Math.min(900, ba);
-  }
-  // Fallback to Plinth standard 15×35 = 525 sqft
-  return 525;
+function effectiveMonthlyRent(estimate: RentSpecEstimate, yearRound: boolean, selectedMonths: number[]): number {
+  const baseMonthly = estimate.rent ?? 0;
+  if (yearRound) return baseMonthly;
+  const annual = seasonalAnnualRevenue(baseMonthly, selectedMonths);
+  return annual / 12;
 }
 
-export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
-  const [assumptions, setAssumptions] = useState<Assumptions>(() => ({
+function initialAssumptions(p: Pick<Props, 'estimate' | 'model' | 'yearRound' | 'selectedMonths' | 'funding'>): Assumptions {
+  const sqft = p.model.squareFootage;
+  const effMonthly = effectiveMonthlyRent(p.estimate, p.yearRound, p.selectedMonths);
+  const psf = sqft > 0 ? effMonthly / sqft : DEFAULT_ASSUMPTIONS.rentPerSqftPerMonth;
+
+  const financed = p.funding === 'finance';
+  return {
     ...DEFAULT_ASSUMPTIONS,
-    aduSizeSqft: deriveAduSize(parcel),
-  }));
+    aduAllInCost: p.model.price,
+    aduSizeSqft: sqft,
+    rentPerSqftPerMonth: psf,
+    // Map funding choice into the HELOAN-style fields. When financing,
+    // we model an 80% loan against the ADU itself (homeValue = ADU cost,
+    // mortgage = 0). User can override in the assumptions panel for a
+    // true home-equity-loan scenario.
+    homeValue: financed ? p.model.price : DEFAULT_ASSUMPTIONS.homeValue,
+    existingMortgageBalance: financed ? 0 : DEFAULT_ASSUMPTIONS.existingMortgageBalance,
+    heloanLtvOnEquity: financed ? (1 - APP_ASSUMPTIONS.financeDownPct) : 0,
+    heloanRate: financed ? APP_ASSUMPTIONS.financeRate : DEFAULT_ASSUMPTIONS.heloanRate,
+    heloanTermYears: financed ? APP_ASSUMPTIONS.financeTermYears : DEFAULT_ASSUMPTIONS.heloanTermYears,
+    propertyTaxIncreaseRate: APP_ASSUMPTIONS.propertyTaxRate,
+    insuranceAnnual: APP_ASSUMPTIONS.insuranceAnnual,
+    maintenancePctOfRent: APP_ASSUMPTIONS.maintenancePct,
+    managementPct: APP_ASSUMPTIONS.managementPct,
+    vacancyPct: APP_ASSUMPTIONS.vacancyPct,
+  };
+}
+
+export const ProFormaPanel: React.FC<Props> = ({ address, estimate, model: plinthModel, yearRound, selectedMonths, funding, onClose }) => {
+  const [assumptions, setAssumptions] = useState<Assumptions>(() =>
+    initialAssumptions({ estimate, model: plinthModel, yearRound, selectedMonths, funding })
+  );
   const [showAssumptions, setShowAssumptions] = useState(false);
 
   const model = useMemo(() => buildProForma(assumptions), [assumptions]);
@@ -425,10 +383,10 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
   const upd = <K extends keyof Assumptions>(k: K, v: Assumptions[K]) =>
     setAssumptions(prev => ({ ...prev, [k]: v }));
 
-  const compSet = useMemo(
-    () => buildSyntheticCompSet(parcel, assumptions.aduSizeSqft, assumptions.rentPerSqftPerMonth),
-    [parcel, assumptions.aduSizeSqft, assumptions.rentPerSqftPerMonth]
-  );
+  const seasonalLabel = yearRound
+    ? 'Year-round (12 months)'
+    : `${selectedMonths.length} months: ${selectedMonths.map(i => MONTH_LABELS[i]).join(', ')}`;
+  const fundingLabel = funding === 'cash' ? 'Pay cash' : `Finance (${Math.round(APP_ASSUMPTIONS.financeDownPct * 100)}% down, ${APP_ASSUMPTIONS.financeTermYears}-yr)`;
 
   return (
     <div className="pf-overlay">
@@ -436,7 +394,7 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
 
       <div className="pf-toolbar pf-no-print">
         <button className="pf-btn pf-btn-ghost" onClick={onClose}>← Close</button>
-        <div className="pf-toolbar-title">Financial Pro Forma</div>
+        <div className="pf-toolbar-title">Revenue Calculator</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             className="pf-btn pf-btn-ghost"
@@ -474,28 +432,29 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
             <NumField label="Pref Rate (waterfall)" value={assumptions.prefRate} onChange={v => upd('prefRate', v)} step={0.005} pct />
             <NumField label="Owner Split Above Pref" value={assumptions.ownerSplitAbovePref} onChange={v => upd('ownerSplitAbovePref', v)} step={0.05} pct />
           </div>
-          <button className="pf-btn pf-btn-ghost" onClick={() => setAssumptions({ ...DEFAULT_ASSUMPTIONS, aduSizeSqft: deriveAduSize(parcel) })}>
+          <button
+            className="pf-btn pf-btn-ghost"
+            onClick={() => setAssumptions(initialAssumptions({ estimate, model: plinthModel, yearRound, selectedMonths, funding }))}
+          >
             Reset to Defaults
           </button>
         </div>
       )}
 
       <div className="pf-doc">
-        {/* Cover */}
         <header className="pf-cover">
           <div className="pf-eyebrow">PLINTH · ADU INVESTMENT MEMO</div>
-          <h1>Financial Pro Forma</h1>
+          <h1>Revenue Calculator</h1>
           <div className="pf-cover-meta">
-            <div><span className="pf-label">Subject:</span> {parcel.address || parcel.parcel_id}</div>
-            <div><span className="pf-label">Parcel ID:</span> {parcel.parcel_id}</div>
-            <div><span className="pf-label">Municipality:</span> {(parcel.municipality_id || '').replace(/_/g, ' ').toUpperCase()}</div>
-            <div><span className="pf-label">Feasibility Tier:</span> {parcel.tier ?? '—'} · Score {parcel.score?.toFixed(1) ?? '—'}</div>
-            <div><span className="pf-label">ADU Size:</span> {assumptions.aduSizeSqft} SF</div>
+            <div><span className="pf-label">Subject:</span> {address}</div>
+            <div><span className="pf-label">Plinth Model:</span> {plinthModel.label} · {plinthModel.squareFootage} SF · {plinthModel.bedrooms} BR / {plinthModel.bathrooms} BA</div>
+            <div><span className="pf-label">Rental season:</span> {seasonalLabel}</div>
+            <div><span className="pf-label">Funding:</span> {fundingLabel}</div>
+            <div><span className="pf-label">Rent source:</span> {estimate.rent != null ? `${fmtCurrency(estimate.rent)}/mo base AVM` : 'unavailable'}</div>
             <div><span className="pf-label">Generated:</span> {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
         </header>
 
-        {/* Section: Sources & Uses */}
         <section className="pf-section">
           <h2>Sources &amp; Uses</h2>
           <div className="pf-two-col">
@@ -521,7 +480,6 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
           </div>
         </section>
 
-        {/* Section: Year 1 Operating Pro Forma */}
         <section className="pf-section">
           <h2>Year 1 Operating Pro Forma</h2>
           <table className="pf-table pf-y1">
@@ -541,7 +499,6 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
           </table>
         </section>
 
-        {/* Section: 10-Year Pro Forma */}
         <section className="pf-section">
           <h2>{assumptions.holdYears}-Year Pro Forma</h2>
           <div className="pf-scroll">
@@ -566,7 +523,6 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
           </div>
         </section>
 
-        {/* Section: Returns Summary */}
         <section className="pf-section">
           <h2>Returns Summary</h2>
           <div className="pf-kpi-grid">
@@ -581,40 +537,44 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
           </div>
         </section>
 
-        {/* Section: Rent Comp Set */}
         <section className="pf-section">
           <h2>Rent Comp Set</h2>
           <p className="pf-fineprint">
-            {compSet.note}
+            {estimate.comparables.length > 0
+              ? `Live comparables from RentCast for ${plinthModel.bedrooms} BR · ${plinthModel.squareFootage} SF single-family rentals near this address. Median row reflects current pro-forma inputs.`
+              : `No per-listing comparables for this area — rent is derived from HUD Fair Market Rent (county-level government data). Median row reflects current pro-forma inputs.`}
           </p>
-          <table className="pf-table">
-            <thead>
-              <tr>
-                <th>Listing</th><th className="num">Size (SF)</th><th className="num">Bd</th><th className="num">$/mo</th><th className="num">$/SF/mo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {compSet.comps.map((c, i) => (
-                <tr key={i}>
-                  <td>{c.label}</td>
-                  <td className="num">{c.sizeSqft}</td>
-                  <td className="num">{c.beds}</td>
-                  <td className="num">{fmtCurrency(c.rentMonthly)}</td>
-                  <td className="num">${c.rentMonthly / c.sizeSqft >= 0 ? (c.rentMonthly / c.sizeSqft).toFixed(2) : '—'}</td>
+          {estimate.comparables.length > 0 && (
+            <table className="pf-table">
+              <thead>
+                <tr>
+                  <th>Listing</th><th className="num">Size (SF)</th><th className="num">Bd</th><th className="num">$/mo</th><th className="num">$/SF/mo</th>
                 </tr>
-              ))}
-              <tr className="pf-total">
-                <td>Median (used in pro forma)</td>
-                <td className="num">{assumptions.aduSizeSqft}</td>
-                <td className="num">—</td>
-                <td className="num">{fmtCurrency(assumptions.rentPerSqftPerMonth * assumptions.aduSizeSqft)}</td>
-                <td className="num">${assumptions.rentPerSqftPerMonth.toFixed(2)}</td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {estimate.comparables.slice(0, 5).map((c, i) => (
+                  <tr key={i}>
+                    <td>{c.address || `Comp #${i + 1}`}</td>
+                    <td className="num">{c.square_footage || '—'}</td>
+                    <td className="num">{c.bedrooms == null ? '—' : c.bedrooms === 0 ? 'Studio' : `${c.bedrooms} BR`}</td>
+                    <td className="num">{c.rent_monthly ? fmtCurrency(c.rent_monthly) : '—'}</td>
+                    <td className="num">
+                      {c.square_footage && c.rent_monthly ? `$${(c.rent_monthly / c.square_footage).toFixed(2)}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="pf-total">
+                  <td>Median (used in pro forma)</td>
+                  <td className="num">{assumptions.aduSizeSqft}</td>
+                  <td className="num">—</td>
+                  <td className="num">{fmtCurrency(assumptions.rentPerSqftPerMonth * assumptions.aduSizeSqft)}</td>
+                  <td className="num">${assumptions.rentPerSqftPerMonth.toFixed(2)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
         </section>
 
-        {/* Section: Equity Waterfall */}
         <section className="pf-section">
           <h2>Illustrative Waterfall <span className="pf-eyebrow-inline">(Hypothetical JV Structure)</span></h2>
           <p className="pf-fineprint">
@@ -643,7 +603,6 @@ export const ProFormaPanel: React.FC<Props> = ({ parcel, onClose }) => {
           </div>
         </section>
 
-        {/* Section: Sensitivity */}
         <section className="pf-section">
           <h2>Sensitivity — Levered IRR</h2>
           <p className="pf-fineprint">Rows: ADU all-in cost · Columns: rent ($/mo). All other assumptions held constant.</p>
@@ -741,14 +700,12 @@ const WfRow: React.FC<{
 );
 
 const SensitivityTable: React.FC<{ assumptions: Assumptions }> = ({ assumptions }) => {
-  // Center on current cost & rent; ±20% bands
   const baseCost = assumptions.aduAllInCost;
   const baseMonthlyRent = assumptions.rentPerSqftPerMonth * assumptions.aduSizeSqft;
 
   const costSteps = [-0.2, -0.1, 0, 0.1, 0.2].map(d => Math.round(baseCost * (1 + d) / 1000) * 1000);
   const rentSteps = [-0.2, -0.1, 0, 0.1, 0.2].map(d => Math.round(baseMonthlyRent * (1 + d) / 25) * 25);
 
-  // Compute IRR grid
   const grid = costSteps.map(cost =>
     rentSteps.map(rent => {
       const a: Assumptions = {
@@ -795,194 +752,162 @@ const SensitivityTable: React.FC<{ assumptions: Assumptions }> = ({ assumptions 
 };
 
 // ──────────────────────────────────────────────────────────────────────
-// SYNTHETIC COMP SET (no live API wired)
-// ──────────────────────────────────────────────────────────────────────
-
-interface CompListing {
-  label: string;
-  sizeSqft: number;
-  beds: string;
-  rentMonthly: number;
-}
-
-function buildSyntheticCompSet(
-  parcel: ParcelProperties,
-  aduSizeSqft: number,
-  rentPerSqftPerMonth: number
-): { comps: CompListing[]; note: string } {
-  const muniLabel = (parcel.municipality_id || '').replace(/_/g, ' ').toUpperCase();
-  // Generate 5 comps at slightly different sizes & rents around the median
-  const seedSize = aduSizeSqft;
-  const seedRent = rentPerSqftPerMonth;
-  const variants = [
-    { dSize: -50, dRent: -0.1, beds: 'Studio' },
-    { dSize: -25, dRent: -0.05, beds: '1 BR' },
-    { dSize: 0, dRent: 0.0, beds: '1 BR' },
-    { dSize: 50, dRent: 0.05, beds: '1 BR' },
-    { dSize: 100, dRent: 0.1, beds: '1 BR' },
-  ];
-  const comps: CompListing[] = variants.map((v, i) => {
-    const sz = Math.max(400, seedSize + v.dSize);
-    const rentSf = seedRent * (1 + v.dRent);
-    return {
-      label: `${muniLabel} comp #${i + 1}`,
-      sizeSqft: sz,
-      beds: v.beds,
-      rentMonthly: Math.round(rentSf * sz / 5) * 5,
-    };
-  });
-  return {
-    comps,
-    note:
-      'No external rent-comp API is currently wired. The comp set below is a synthetic band ' +
-      'centered on the editable $/SF/month assumption — meant for illustration. Replace with ' +
-      'live Zillow/RentCast/Compass data once an API key is configured.',
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// STYLES — scoped to .pf-* classes; print stylesheet collapses overlay.
+// STYLES
 // ──────────────────────────────────────────────────────────────────────
 
 const PF_CSS = `
 .pf-overlay {
   position: fixed; inset: 0; z-index: 5000;
-  background: #0c0c0c;
-  color: #f0f0f0;
-  font-family: 'Syne', 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow: auto;
   padding-bottom: 60px;
 }
 .pf-toolbar {
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 28px; background: #141414; border-bottom: 1px solid #2a2a2a;
+  padding: 14px 28px; background: var(--paper); border-bottom: 1px solid var(--rule);
 }
 .pf-toolbar-title {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 18px; letter-spacing: 0.04em; color: #f0f0f0;
+  font-size: 11px; letter-spacing: 0.16em; color: var(--ink);
+  text-transform: uppercase; font-weight: 600;
 }
 .pf-btn {
-  padding: 8px 16px; border-radius: 4px; font-size: 12px;
-  font-weight: 600; letter-spacing: 0.04em; cursor: pointer;
-  border: 1px solid transparent; background: none;
-  color: #f0f0f0;
-  transition: background 0.15s, border-color 0.15s;
+  padding: 9px 18px; font-size: 11px;
+  font-weight: 600; letter-spacing: 0.12em; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--paper);
+  color: var(--ink);
+  text-transform: uppercase;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
   font-family: inherit;
 }
-.pf-btn-ghost { border-color: #2a2a2a; color: #cccccc; }
-.pf-btn-ghost:hover { border-color: #5de0a0; color: #5de0a0; }
-.pf-btn-primary { background: #0d2a1a; border-color: #5de0a0; color: #5de0a0; }
-.pf-btn-primary:hover { background: #14422a; }
+.pf-btn-ghost { border-color: var(--rule); color: var(--ink-soft); }
+.pf-btn-ghost:hover { border-color: var(--ink); color: var(--ink); }
+.pf-btn-primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.pf-btn-primary:hover { background: var(--accent); border-color: var(--accent); }
 
 .pf-assumptions {
-  margin: 14px 28px; padding: 18px; background: #131313;
-  border: 1px solid #2a2a2a; border-radius: 6px;
+  margin: 14px 28px; padding: 20px 24px; background: var(--paper-soft);
+  border: 1px solid var(--rule);
 }
 .pf-assumptions h3 {
-  margin: 0 0 12px; font-family: 'Playfair Display', Georgia, serif;
-  font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: #888;
+  margin: 0 0 14px;
+  font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-soft); font-weight: 600;
 }
 .pf-grid {
   display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: 10px 16px; margin-bottom: 12px;
+  gap: 12px 16px; margin-bottom: 14px;
 }
 @media (max-width: 1100px) { .pf-grid { grid-template-columns: repeat(2, 1fr); } }
 .pf-field { display: flex; flex-direction: column; gap: 4px; }
-.pf-field-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
+.pf-field-label { font-size: 10px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.10em; }
 .pf-field-input {
-  display: flex; align-items: center; background: #0a0a0a;
-  border: 1px solid #2a2a2a; border-radius: 4px; padding: 4px 8px;
+  display: flex; align-items: center; background: var(--paper);
+  border: 1px solid var(--rule); padding: 4px 10px;
 }
-.pf-field-input:focus-within { border-color: #5de0a0; }
+.pf-field-input:focus-within { border-color: var(--ink); }
 .pf-field-input input {
-  flex: 1; background: transparent; border: none; color: #f0f0f0;
-  font-family: inherit; font-size: 13px; outline: none; padding: 4px 0;
-  min-width: 0;
+  flex: 1; background: transparent; border: none; color: var(--ink);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px;
+  outline: none; padding: 5px 0; min-width: 0;
+  font-variant-numeric: tabular-nums;
 }
-.pf-prefix, .pf-suffix { color: #888; font-size: 12px; }
+.pf-prefix, .pf-suffix { color: var(--ink-faint); font-size: 12px; font-family: 'IBM Plex Mono', monospace; }
 
 .pf-doc {
-  max-width: 1100px; margin: 24px auto; padding: 0 32px;
+  max-width: 1100px; margin: 32px auto; padding: 0 40px;
 }
 
 .pf-cover {
-  border-bottom: 1px solid #2a2a2a; padding-bottom: 28px; margin-bottom: 28px;
+  border-bottom: 1px solid var(--rule); padding-bottom: 32px; margin-bottom: 32px;
 }
 .pf-eyebrow {
-  font-size: 11px; letter-spacing: 0.18em; color: #5de0a0;
-  text-transform: uppercase; margin-bottom: 14px;
+  font-size: 10px; letter-spacing: 0.20em; color: var(--accent);
+  text-transform: uppercase; font-weight: 600; margin-bottom: 16px;
 }
 .pf-eyebrow-inline {
-  font-size: 11px; letter-spacing: 0.12em; color: #888;
+  font-size: 11px; letter-spacing: 0.14em; color: var(--ink-faint);
   text-transform: uppercase; font-weight: 400;
 }
 .pf-cover h1 {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 42px; line-height: 1.1; margin: 0 0 24px; color: #f0f0f0;
-  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  font-size: 40px; line-height: 1.05; margin: 0 0 28px; color: var(--ink);
+  font-weight: 500; letter-spacing: -0.02em;
 }
 .pf-cover-meta {
   display: grid; grid-template-columns: repeat(2, 1fr);
-  gap: 8px 32px; font-size: 12px; color: #cccccc;
+  gap: 8px 40px; font-size: 12px; color: var(--ink-soft);
 }
-.pf-label { color: #888; letter-spacing: 0.04em; }
+.pf-label {
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+  margin-right: 6px;
+}
 
 .pf-section {
-  margin-bottom: 36px; page-break-inside: avoid;
+  margin-bottom: 44px; page-break-inside: avoid;
 }
 .pf-section h2 {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 22px; color: #f0f0f0; margin: 0 0 16px;
-  border-bottom: 1px solid #2a2a2a; padding-bottom: 8px;
-  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  font-size: 18px; color: var(--ink); margin: 0 0 18px;
+  border-bottom: 1px solid var(--rule); padding-bottom: 10px;
+  font-weight: 600; letter-spacing: -0.005em;
 }
 .pf-fineprint {
-  font-size: 11px; color: #888; line-height: 1.5; margin: 0 0 12px;
+  font-size: 11px; color: var(--ink-faint); line-height: 1.55; margin: 0 0 14px;
 }
 .pf-callout {
-  background: #131313; border-left: 3px solid #5de0a0;
-  padding: 10px 14px; margin-top: 14px; font-size: 12px; color: #ccc;
-  line-height: 1.5;
+  background: var(--paper-soft); border-left: 2px solid var(--accent);
+  padding: 12px 16px; margin-top: 16px; font-size: 12px; color: var(--ink-soft);
+  line-height: 1.55;
 }
 
 .pf-two-col {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
 }
 @media (max-width: 800px) { .pf-two-col { grid-template-columns: 1fr; } }
 
 .pf-table {
   width: 100%; border-collapse: collapse;
-  font-size: 12px; color: #cccccc;
+  font-size: 12px; color: var(--ink);
 }
 .pf-table th, .pf-table td {
-  padding: 8px 10px; text-align: left;
-  border-bottom: 1px solid #1f1f1f;
+  padding: 9px 10px; text-align: left;
+  border-bottom: 1px solid var(--rule);
 }
 .pf-table th {
-  color: #888; font-weight: 500; text-transform: uppercase;
-  letter-spacing: 0.06em; font-size: 10px; background: #131313;
+  color: var(--ink-faint); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.10em; font-size: 10px; background: var(--paper-soft);
 }
-.pf-table td.num, .pf-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.pf-table td.indent { padding-left: 22px; color: #aaa; }
-.pf-table td.neg { color: #d0a4a4; }
-.pf-subtotal td { background: #131313; font-weight: 500; color: #f0f0f0; }
+.pf-table td.num, .pf-table th.num {
+  text-align: right;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.pf-table td.indent { padding-left: 26px; color: var(--ink-soft); }
+.pf-table td.neg { color: var(--accent); }
+.pf-subtotal td { background: var(--paper-soft); font-weight: 500; color: var(--ink); }
 .pf-total td {
-  background: #181818; font-weight: 700; color: #f0f0f0;
-  border-top: 1px solid #2a2a2a;
+  background: var(--paper-soft); font-weight: 700; color: var(--ink);
+  border-top: 1px solid var(--ink);
 }
-.pf-final td { color: #5de0a0; }
+.pf-final td { color: var(--ink); }
+.pf-final td.num { font-weight: 700; }
 
-.pf-y1 { max-width: 600px; }
+.pf-y1 { max-width: 640px; }
 .pf-y1 td:first-child { width: 75%; }
 
 .pf-grid-table th:first-child, .pf-grid-table td:first-child {
   position: sticky; left: 0; background: inherit;
-  font-weight: 500; color: #cccccc;
+  font-weight: 500; color: var(--ink);
 }
-.pf-grid-table thead th { background: #131313; }
+.pf-grid-table thead th { background: var(--paper-soft); }
 .pf-grid-table { font-size: 11px; }
-.pf-grid-table td, .pf-grid-table th { padding: 6px 8px; }
+.pf-grid-table td, .pf-grid-table th { padding: 7px 9px; }
 
 .pf-scroll { overflow-x: auto; }
 
@@ -992,56 +917,39 @@ const PF_CSS = `
 }
 @media (max-width: 900px) { .pf-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 .pf-kpi {
-  padding: 16px; background: #131313; border: 1px solid #2a2a2a;
-  border-radius: 4px;
+  padding: 18px; background: var(--paper); border: 1px solid var(--rule);
 }
-.pf-kpi-accent { border-color: #5de0a0; }
+.pf-kpi-accent { border-color: var(--ink); }
 .pf-kpi-label {
-  font-size: 10px; color: #888; text-transform: uppercase;
-  letter-spacing: 0.08em; margin-bottom: 8px;
+  font-size: 10px; color: var(--ink-faint); text-transform: uppercase;
+  letter-spacing: 0.12em; margin-bottom: 10px; font-weight: 600;
 }
 .pf-kpi-value {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 22px; color: #f0f0f0; font-weight: 500;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 22px; color: var(--ink); font-weight: 500;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
 }
-.pf-kpi-accent .pf-kpi-value { color: #5de0a0; }
+.pf-kpi-accent .pf-kpi-value { color: var(--ink); }
 
 .pf-sens td.pf-sens-cell {
-  color: #0c0c0c; font-weight: 700;
+  color: var(--ink); font-weight: 700;
 }
 
 .pf-footer {
-  margin-top: 60px; padding-top: 20px;
-  border-top: 1px solid #2a2a2a;
-  font-size: 10px; color: #666; line-height: 1.6;
+  margin-top: 60px; padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  font-size: 10px; color: var(--ink-faint); line-height: 1.6;
   display: flex; justify-content: space-between; gap: 30px;
 }
 .pf-footer-mark {
-  letter-spacing: 0.16em; color: #5de0a0; font-weight: 600;
-  white-space: nowrap;
+  letter-spacing: 0.18em; color: var(--accent); font-weight: 700;
+  white-space: nowrap; text-transform: uppercase;
 }
 
 @media print {
   .pf-no-print { display: none !important; }
-  .pf-overlay {
-    position: static !important;
-    background: #fff !important;
-    color: #111 !important;
-  }
+  .pf-overlay { position: static !important; background: #ffffff !important; }
   .pf-doc { max-width: none; padding: 0; margin: 0; }
-  .pf-cover h1, .pf-section h2, .pf-kpi-value { color: #111 !important; }
-  .pf-eyebrow, .pf-footer-mark, .pf-final td, .pf-kpi-accent .pf-kpi-value { color: #1c6e44 !important; }
-  .pf-table { color: #222 !important; }
-  .pf-table th { color: #555 !important; background: #f4f4f4 !important; }
-  .pf-table td.neg { color: #8a3a3a !important; }
-  .pf-table td, .pf-table th { border-bottom: 1px solid #d6d6d6 !important; }
-  .pf-subtotal td { background: #f4f4f4 !important; color: #111 !important; }
-  .pf-total td { background: #ececec !important; color: #111 !important; border-top: 1px solid #999 !important; }
-  .pf-callout { background: #f4f4f4 !important; color: #333 !important; }
-  .pf-kpi { background: #fafafa !important; border-color: #ccc !important; }
-  .pf-kpi-label { color: #666 !important; }
-  .pf-kpi-accent { border-color: #1c6e44 !important; }
-  .pf-fineprint, .pf-footer { color: #555 !important; }
   .pf-section { page-break-inside: avoid; }
 }
 `;

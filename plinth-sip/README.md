@@ -1,174 +1,101 @@
-# Plinth Spatial Intelligence Platform
+# Plinth ADU Rent Calculator
 
-Internal GIS platform for parcel feasibility analysis, scoring, and outreach targeting.
+Address-in, ADU rent revenue out. A single-page tool for homeowners and analysts to estimate the rental income of a studio / 1BR / 2BR accessory dwelling unit at any U.S. address, with an optional financial pro forma (cash flow, IRR, sensitivity).
+
+Data sources:
+- **RentCast** (primary): live MLS comps, rent AVM with 5% ADU premium
+- **HUD Fair Market Rent** (fallback): county-level government data for rural addresses RentCast can't cover
+
+Built for the Northeast US first, but works anywhere either source has data.
 
 ---
 
 ## Prerequisites
 
-- Docker Desktop (running)
 - Python 3.10+
 - Node.js 18+
 
+No Docker, no Postgres — uses SQLite for response caching.
+
 ---
 
-## First-Time Setup
+## Setup
 
-### Step 1 — Start the database
-
-Open a terminal, navigate to the `plinth-sip` folder, and run:
+### Backend
 
 ```bash
-docker compose up db -d
-```
-
-Wait about 10 seconds for PostgreSQL + PostGIS to initialize.
-
-### Step 2 — Set up the backend
-
-```bash
-cd backend
+cd plinth-sip/backend
 python -m venv venv
 
-# On Windows:
+# Windows:
 venv\Scripts\activate
-
-# On Mac/Linux:
+# Mac/Linux:
 source venv/bin/activate
 
 pip install -r requirements.txt
-```
-
-Copy the environment file:
-
-```bash
 cp ../.env.example .env
 ```
 
-### Step 3 — Run database migrations
+Fill in `.env`:
+- `RENTCAST_API_KEY` — free signup at https://app.rentcast.io
+- `HUD_API_TOKEN` — free signup at https://www.huduser.gov/portal/dataset/fmr-api.html
+
+Start the API:
 
 ```bash
-cd backend
-alembic upgrade head
-```
-
-### Step 4 — Seed the database (templates + Acton config)
-
-```bash
-cd backend
-CONFIGS_DIR=../configs python scripts/seed.py
-```
-
-On Windows, set the variable differently:
-
-```cmd
-set CONFIGS_DIR=..\configs
-python scripts\seed.py
-```
-
-### Step 5 — Start the backend API
-
-```bash
-cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
-The API will be live at: http://localhost:8000
-API docs (auto-generated): http://localhost:8000/docs
+API docs: http://localhost:8000/docs
 
-### Step 6 — Set up and start the frontend
-
-Open a second terminal window:
+### Frontend
 
 ```bash
-cd frontend
+cd plinth-sip/frontend
 npm install
 npm run dev
 ```
 
-The map will be live at: http://localhost:3000
+App: http://localhost:3001
 
 ---
 
-## Load Municipality Config
+## How it works
 
-After the backend is running, load the Acton config via the API:
-
-```bash
-curl -X POST http://localhost:8000/municipalities/load-from-file/ma_acton
-```
-
-Or open http://localhost:8000/docs in your browser and use the interactive API explorer.
-
----
-
-## Run Scoring
-
-Once parcels are loaded (via ingestion scripts — see below), trigger scoring:
-
-```bash
-curl -X POST http://localhost:8000/scans/ma_acton/rescore
-```
+1. User enters an address.
+2. Backend tries RentCast (3 specs: studio / 1BR / 2BR).
+3. If RentCast returns no usable data (typical in rural NE), it falls back to HUD FMR:
+   - Census geocoder resolves address → county FIPS (free, no auth)
+   - HUD FMR API returns county-level rent by bedroom count
+   - We apply a 10% modern-construction uplift (FMR represents 40th-percentile standard stock)
+4. SQLite caches the response for 7 days keyed on the normalized address.
+5. Frontend shows three rent cards (studio/1BR/2BR) and a CTA to open the full pro forma — which includes sources & uses, 10-year cash flows, IRR, sensitivity, and an illustrative JV waterfall.
 
 ---
 
-## Loading Parcel Data (Phase 1)
-
-Parcel data for Massachusetts towns is available from MassGIS:
-https://www.mass.gov/info-details/massgis-data-property-tax-parcels
-
-1. Download the Acton shapefile from MassGIS
-2. Place it in `backend/data/raw/ma_acton/`
-3. Run the ingestion script (to be built in Phase 1 sprint 2):
-   ```bash
-   python scripts/ingest.py --municipality ma_acton --file data/raw/ma_acton/parcels.shp
-   ```
-
----
-
-## Project Structure
+## Project layout
 
 ```
 plinth-sip/
 ├── backend/
 │   ├── app/
-│   │   ├── engine/          # Rules engine + scoring engine
-│   │   │   ├── rules/       # One file per rule category
-│   │   │   ├── scoring.py
-│   │   │   └── runner.py
-│   │   ├── ingestion/       # Normalization + source adapters
-│   │   ├── models/          # SQLAlchemy ORM models
-│   │   ├── routers/         # FastAPI route handlers
+│   │   ├── agents/
+│   │   │   ├── rentcast_service.py    # RentCast AVM client
+│   │   │   └── hud_fmr_service.py     # Census geocoder + HUD FMR fallback
+│   │   ├── models/
+│   │   │   └── rent_cache.py          # SQLite cache table
+│   │   ├── routers/
+│   │   │   └── rent_estimate.py       # POST /rent-estimate
 │   │   ├── config.py
 │   │   ├── database.py
 │   │   └── main.py
-│   ├── alembic/             # Database migrations
-│   ├── scripts/             # Seed + ingestion scripts
 │   └── requirements.txt
 ├── frontend/
 │   └── src/
-│       ├── components/      # Map, FilterBar, ParcelDetailPanel
-│       ├── api/             # API client
-│       └── types/           # TypeScript types
-├── configs/
-│   └── municipalities/
-│       └── ma_acton.json    # Acton municipality config
-└── docker-compose.yml
+│       ├── components/
+│       │   ├── RentEstimatePage.tsx   # landing page
+│       │   └── ProFormaPanel.tsx      # full investment pro forma
+│       ├── api/client.ts
+│       └── main.tsx
+└── .env.example
 ```
-
----
-
-## Phase 1 Status
-
-- [x] Database schema + migrations
-- [x] Municipality config system (ma_acton)
-- [x] Plinth template schema (Studio 400, 1BR 550)
-- [x] Normalization layer + MassGIS adapter
-- [x] Rules engine (11 rules across 5 categories)
-- [x] Scoring engine (default profile, 4 tiers)
-- [x] FastAPI backend (municipalities, parcels, templates, scans, exports)
-- [x] React + Leaflet map frontend
-- [x] Parcel detail panel with rule results + score breakdown
-- [x] CSV export
-- [ ] Parcel ingestion script (next)
-- [ ] MassGIS data download + first real scan run (next)
